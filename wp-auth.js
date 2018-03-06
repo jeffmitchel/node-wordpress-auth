@@ -28,8 +28,21 @@ function WP_Auth( wpurl, logged_in_key, logged_in_salt,
 	this.cookiename = 'wordpress_logged_in_' + md5.digest( 'hex' );
 	this.salt = logged_in_key + logged_in_salt;
 
-	this.db = require( 'mysql-native' ).createTCPClient( mysql_host );
-	this.db.auth( mysql_db, mysql_user, mysql_pass );
+	var mysql = require( 'mysql2' );
+	var mysqlOpts = {
+		connectionLimit : 10,
+		host: mysql_host,
+		database: mysql_db,
+		user: mysql_user,
+		password: mysql_pass
+	};
+
+	this.db = mysql.createPool( mysqlOpts );
+
+	this.db.on(' error', function( err ) {
+	  console.log( err.code ); // 'ER_BAD_DB_ERROR'
+	} );
+
 	this.table_prefix = wp_table_prefix;
 
 	this.known_hashes = {};
@@ -191,19 +204,17 @@ function Valid_Auth( data, auth ) {
 		} );
     }
 
-
-	var found = false;
-	auth.db.query( 'select ID, user_pass from ' + auth.table_prefix + 'users where user_login = \'' + user_login.replace( /(\'|\\)/g, '\\$1' ) + '\'' ).on( 'row', function( data ) {
-		found = true;
-		auth.known_hashes[user_login] = {frag: data.user_pass.substr( 8, 4 ), id: data.ID};
-		auth.known_hashes_timeout[user_login] = +new Date + auth.timeout;
-	} ).on( 'end', function() {
-		if ( !found ) {
+	var query = 'select ID, user_pass from ' + auth.table_prefix + 'users where user_login = \'' + user_login.replace( /(\'|\\)/g, '\\$1' ) + '\'';
+	auth.db.query(query, function (err, data) {
+		if (err) {
 			auth.known_hashes[user_login] = {frag: '__fail__', id: 0};
+			auth.known_hashes_timeout[user_login] = +new Date + auth.timeout;
+		} else {
+			auth.known_hashes[user_login] = {frag: data[0].user_pass.substr( 8, 4 ), id: data[0].ID};
 			auth.known_hashes_timeout[user_login] = +new Date + auth.timeout;
 		}
 		parse( auth.known_hashes[user_login].frag, auth.known_hashes[user_login].id );
-	} );
+	});
 }
 
 require( 'util' ).inherits( Valid_Auth, require( 'events' ).EventEmitter );
