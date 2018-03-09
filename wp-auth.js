@@ -1,36 +1,14 @@
 var crypto = require('crypto');
 
-function WP_Auth(
-  wpurl,
-  logged_in_key,
-  logged_in_salt,
-  mysql_host,
-  mysql_user,
-  mysql_pass,
-  mysql_db,
-  wp_table_prefix
-) {
+function WP_Auth(options) {
   var md5 = crypto.createHash('md5');
-  md5.update(wpurl);
+  md5.update(options.siteUrl);
   this.cookiename = 'wordpress_logged_in_' + md5.digest('hex');
-  this.salt = logged_in_key + logged_in_salt;
+  this.salt = options.loggedInKey + options.loggedInSalt;
 
-  var mysql = require('mysql2');
-  var mysqlOpts = {
-    connectionLimit: 10,
-    host: mysql_host,
-    database: mysql_db,
-    user: mysql_user,
-    password: mysql_pass
-  };
+  this.db = options.connection;
 
-  this.db = mysql.createPool(mysqlOpts);
-
-  this.db.on(' error', function(err) {
-    console.log(err.code); // 'ER_BAD_DB_ERROR'
-  });
-
-  this.table_prefix = wp_table_prefix;
+  this.table_prefix = options.tablePrefix;
 
   this.known_hashes = {};
   this.known_hashes_timeout = {};
@@ -62,26 +40,8 @@ WP_Auth.prototype.checkAuth = function(req) {
   return new Valid_Auth(data, this);
 };
 
-exports.create = function(
-  wpurl,
-  logged_in_key,
-  logged_in_salt,
-  mysql_host,
-  mysql_user,
-  mysql_pass,
-  mysql_db,
-  wp_table_prefix
-) {
-  return new WP_Auth(
-    wpurl,
-    logged_in_key,
-    logged_in_salt,
-    mysql_host,
-    mysql_user,
-    mysql_pass,
-    mysql_db,
-    wp_table_prefix
-  );
+exports.create = function(options) {
+  return new WP_Auth(options);
 };
 
 function Invalid_Auth(err) {
@@ -142,19 +102,28 @@ function Valid_Auth(data, auth) {
     "users where user_login = '" +
     user_login.replace(/(\'|\\)/g, '\\$1') +
     "'";
-  auth.db.query(query, function(err, data) {
-    if (err) {
-      auth.known_hashes[user_login] = { frag: '__fail__', id: 0 };
-      auth.known_hashes_timeout[user_login] = +new Date() + auth.timeout;
-    } else {
+
+  auth.db
+    .query(query)
+    .then(users => {
       auth.known_hashes[user_login] = {
-        frag: data[0].user_pass.substr(8, 4),
-        id: data[0].ID
+        frag: users[0][0].user_pass.substr(8, 4),
+        id: users[0][0].ID
       };
       auth.known_hashes_timeout[user_login] = +new Date() + auth.timeout;
-    }
-    parse(auth.known_hashes[user_login].frag, auth.known_hashes[user_login].id);
-  });
+      parse(
+        auth.known_hashes[user_login].frag,
+        auth.known_hashes[user_login].id
+      );
+    })
+    .catch(e => {
+      auth.known_hashes[user_login] = { frag: '__fail__', id: 0 };
+      auth.known_hashes_timeout[user_login] = +new Date() + auth.timeout;
+      parse(
+        auth.known_hashes[user_login].frag,
+        auth.known_hashes[user_login].id
+      );
+    });
 }
 
 require('util').inherits(Valid_Auth, require('events').EventEmitter);
