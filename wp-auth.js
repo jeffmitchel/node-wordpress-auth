@@ -1,4 +1,26 @@
-var crypto = require('crypto');
+var crypto = require('crypto'),
+  phpjs = require('./serialize');
+
+function sanitizeValue(value) {
+  switch (typeof value) {
+    case 'boolean':
+    case 'object':
+      return phpjs.serialize(value).replace(/(\'|\\)/g, '\\$1');
+    case 'number':
+      return Number.toString.call(value);
+    case 'string':
+      try {
+        // If it's a serialized string, serialize it again so it comes back out of the database the same way.
+        return phpjs
+          .serialize(phpjs.serialize(phpjs.unserialize(value)))
+          .replace(/(\'|\\)/g, '\\$1');
+      } catch (ex) {
+        return value.replace(/(\'|\\)/g, '\\$1');
+      }
+    default:
+      throw new Error('Invalid data type: ' + typeof value);
+  }
+}
 
 function WP_Auth(options) {
   var md5 = crypto.createHash('md5');
@@ -62,6 +84,9 @@ function Valid_Auth(data, auth) {
     expiration = data[1],
     token = data[2],
     hash = data[3];
+
+  var queryType = { type: auth.db.QueryTypes.SELECT };
+
   user_login = user_login.replace('%40', '@');
 
   if (
@@ -70,6 +95,49 @@ function Valid_Auth(data, auth) {
   ) {
     delete auth.known_hashes[user_login];
     delete auth.known_hashes_timeout[user_login];
+  }
+
+  function extractRole(o) {
+    var key = Object.keys(o)[0];
+    var val = o[key];
+    if (!val) {
+      throw new Error('Invalid role');
+    }
+    return key;
+  }
+
+  function setRole(id) {
+    var roleQuery =
+      'select meta_value from ' +
+      auth.table_prefix +
+      "usermeta where meta_key = '" +
+      sanitizeValue('wp_capabilities') +
+      "' and user_id = " +
+      parseInt(id);
+
+    if (auth.known_hashes[user_login]['role']) {
+      self.emit('auth', true, id, auth.known_hashes[user_login].role);
+    } else {
+      auth.db
+        .query(roleQuery, queryType)
+        .then(data => {
+          try {
+            auth.known_hashes[user_login].role = extractRole(
+              phpjs.unserialize(data[0].meta_value)
+            );
+            self.emit('auth', true, id, auth.known_hashes[user_login].role);
+          } catch (data) {
+            auth.known_hashes[user_login].role = extractRole(
+              data[0].meta_value
+            );
+            self.emit('auth', true, id, auth.known_hashes[user_login].role);
+          }
+        })
+        .catch(e => {
+          auth.known_hashes[user_login].role = '';
+          self.emit('auth', false, 0, '', 'invalid role');
+        });
+    }
   }
 
   function parse(pass_frag, id) {
@@ -81,9 +149,9 @@ function Valid_Auth(data, auth) {
     hmac2.update(user_login + '|' + expiration + '|' + token);
     var cookieHash = hmac2.digest('hex');
     if (hash == cookieHash) {
-      self.emit('auth', true, id);
+      setRole(id);
     } else {
-      self.emit('auth', false, 0, 'invalid hash');
+      self.emit('auth', false, 0, '', 'invalid hash');
     }
   }
 
@@ -96,7 +164,7 @@ function Valid_Auth(data, auth) {
     });
   }
 
-  var query =
+  var userQuery =
     'select ID, user_pass from ' +
     auth.table_prefix +
     "users where user_login = '" +
@@ -104,11 +172,11 @@ function Valid_Auth(data, auth) {
     "'";
 
   auth.db
-    .query(query)
+    .query(userQuery, queryType)
     .then(users => {
       auth.known_hashes[user_login] = {
-        frag: users[0][0].user_pass.substr(8, 4),
-        id: users[0][0].ID
+        frag: users[0].user_pass.substr(8, 4),
+        id: users[0].ID
       };
       auth.known_hashes_timeout[user_login] = +new Date() + auth.timeout;
       parse(
