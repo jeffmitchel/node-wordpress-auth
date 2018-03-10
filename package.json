@@ -11,9 +11,7 @@
   "engines": {
     "node": ">=0.4"
   },
-  "dependencies": {
-    "mysql2": ">=1.5.2"
-  },
+  "dependencies": {},
   "devDependencies": {},
   "main": "wp-auth"
 }
