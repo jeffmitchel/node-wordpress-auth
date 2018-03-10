@@ -1,23 +1,32 @@
-TO INSTALL:
-===========
+# TO INSTALL:
+
     npm install wordpress-auth
 
-TO USE:
-=======
+# TO USE:
+
 In your init:
 
-    var wp_auth = require('wordpress-auth').create( 'http://my-blog.example',
-                          'LOGGED_IN_KEY from wp-config.php',
-                          'LOGGED_IN_SALT from wp-config.php',
-                          'MySQL host',
-                          'MySQL username',
-                          'MySQL password',
-                          'MySQL database',
-                          'WordPress table prefix (eg. wp_)' );
+```javascript
+  var wp_auth = require('wordpress-auth').create( {
+      connection: Sequelize database connection,
+      tablePrefix: Wordpress table prefix,
+      siteUrl: Site URL,
+      loggedInKey: LOGGED_IN_KEY from wp_config.php,
+      loggedInSalt: LOGGED_IN_SALT from wp_config.php
+    } );
+```
 
 When you get a HTTP request and you need to verify auth:
 
-    wp_auth.checkAuth( req ).on( 'auth', function( auth_is_valid, user_id ) {
-        auth_is_valid; // true if the user is logged in, false if they are not
-        user_id; // the ID number of the user or 0 if the user is not logged in
-    } );
+```javascript
+  wp_auth.checkAuth( req ).on( 'auth', function( response ) {
+    // response object format:
+    {
+      isAuthenticated: boolean,
+      userId: id | 0,
+      userName: name | '',
+      userRole: role | '',
+      error: error | undefined
+    }
+  } );
+```

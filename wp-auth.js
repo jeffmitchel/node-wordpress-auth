@@ -73,7 +73,13 @@ Invalid_Auth.prototype.on = function(key, callback) {
   if (key != 'auth') return this;
   var self = this;
   process.nextTick(function() {
-    callback.call(self, false, 0, self.err);
+		callback.call(self, {
+			isAuthenticated: false,
+			userId: 0,
+			userName: '',
+			userRole: '',
+			error: 'invalid role'
+		});
   });
   return this;
 };
@@ -116,7 +122,12 @@ function Valid_Auth(data, auth) {
       parseInt(id);
 
     if (auth.known_hashes[user_login]['role']) {
-      self.emit('auth', true, id, auth.known_hashes[user_login].role);
+      self.emit('auth', {
+        isAuthenticated: true,
+        userId: id,
+        userName: auth.known_hashes[user_login].name,
+        userRole: auth.known_hashes[user_login].role
+      });
     } else {
       auth.db
         .query(roleQuery, queryType)
@@ -125,17 +136,33 @@ function Valid_Auth(data, auth) {
             auth.known_hashes[user_login].role = extractRole(
               phpjs.unserialize(data[0].meta_value)
             );
-            self.emit('auth', true, id, auth.known_hashes[user_login].role);
+            self.emit('auth', {
+              isAuthenticated: true,
+              userId: id,
+              userName: auth.known_hashes[user_login].name,
+              userRole: auth.known_hashes[user_login].role
+            });
           } catch (data) {
             auth.known_hashes[user_login].role = extractRole(
               data[0].meta_value
             );
-            self.emit('auth', true, id, auth.known_hashes[user_login].role);
+            self.emit('auth', {
+              isAuthenticated: true,
+              userId: id,
+              userName: auth.known_hashes[user_login].name,
+              userRole: auth.known_hashes[user_login].role
+            });
           }
         })
         .catch(e => {
           auth.known_hashes[user_login].role = '';
-          self.emit('auth', false, 0, '', 'invalid role');
+          self.emit('auth', {
+            isAuthenticated: false,
+            userId: 0,
+            userName: '',
+            userRole: '',
+            error: 'invalid role'
+          });
         });
     }
   }
@@ -151,7 +178,13 @@ function Valid_Auth(data, auth) {
     if (hash == cookieHash) {
       setRole(id);
     } else {
-      self.emit('auth', false, 0, '', 'invalid hash');
+      self.emit('auth', {
+        isAuthenticated: false,
+        userId: 0,
+        userName: '',
+        userRole: '',
+        error: 'invalid hash'
+      });
     }
   }
 
@@ -165,7 +198,7 @@ function Valid_Auth(data, auth) {
   }
 
   var userQuery =
-    'select ID, user_pass from ' +
+    'select ID, user_pass, display_name from ' +
     auth.table_prefix +
     "users where user_login = '" +
     user_login.replace(/(\'|\\)/g, '\\$1') +
@@ -176,7 +209,8 @@ function Valid_Auth(data, auth) {
     .then(users => {
       auth.known_hashes[user_login] = {
         frag: users[0].user_pass.substr(8, 4),
-        id: users[0].ID
+        id: users[0].ID,
+				name: users[0].display_name
       };
       auth.known_hashes_timeout[user_login] = +new Date() + auth.timeout;
       parse(
