@@ -78,7 +78,7 @@ Invalid_Auth.prototype.on = function(key, callback) {
 			userId: 0,
 			userName: '',
 			userRole: '',
-			error: 'invalid role'
+			error: self.err
 		});
   });
   return this;
